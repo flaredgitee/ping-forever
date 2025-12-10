@@ -44,11 +44,19 @@ fun main(args: Array<String>) {
                         "reason" to "timeout",
                         "details" to result.message
                     )
-                    val hookRes = HookRunner.runHook(config.hook, ctx)
+                    val hookRes = runHook(config.hook, ctx)
                     if (hookRes.isFailure) {
-                        println("Hook failed: ${hookRes.exceptionOrNull()?.message}")
+                        val ex = hookRes.exceptionOrNull()
+                        println("Hook execution error: ${ex?.message}")
                     } else {
-                        println("Hook executed successfully")
+                        val out = hookRes.getOrNull()!!
+                        if (out.exitCode == 0) {
+                            println("Hook executed successfully (exit=0)")
+                        } else {
+                            println("Hook exited with code=${out.exitCode}")
+                        }
+                        if (out.stdout.isNotBlank()) println("Hook stdout: ${out.stdout}")
+                        if (out.stderr.isNotBlank()) println("Hook stderr: ${out.stderr}")
                     }
                 }
             }
@@ -61,11 +69,19 @@ fun main(args: Array<String>) {
                         "reason" to "error",
                         "details" to result.message
                     )
-                    val hookRes = HookRunner.runHook(config.hook, ctx)
+                    val hookRes = runHook(config.hook, ctx)
                     if (hookRes.isFailure) {
-                        println("Hook failed: ${hookRes.exceptionOrNull()?.message}")
+                        val ex = hookRes.exceptionOrNull()
+                        println("Hook execution error: ${ex?.message}")
                     } else {
-                        println("Hook executed successfully")
+                        val out = hookRes.getOrNull()!!
+                        if (out.exitCode == 0) {
+                            println("Hook executed successfully (exit=0)")
+                        } else {
+                            println("Hook exited with code=${out.exitCode}")
+                        }
+                        if (out.stdout.isNotBlank()) println("Hook stdout: ${out.stdout}")
+                        if (out.stderr.isNotBlank()) println("Hook stderr: ${out.stderr}")
                     }
                 }
             }

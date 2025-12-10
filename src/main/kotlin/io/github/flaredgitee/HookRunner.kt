@@ -16,44 +16,65 @@
 
 package io.github.flaredgitee
 
+import java.io.ByteArrayOutputStream
 import java.time.Instant
 
-object HookRunner {
-    // Run the hook command (list where first is executable). This is side-effecting.
-    fun runHook(hook: List<String>, context: Map<String, Any?>): Result<Unit> {
-        return try {
-            if (hook.isEmpty()) return Result.success(Unit)
-            val pb = ProcessBuilder(hook)
-            // Provide context JSON-ish on stdin for the hook
-            val proc = pb.start()
-            val input = proc.outputStream
-            val json = buildContextJson(context)
-            input.write(json.toByteArray())
-            input.flush()
-            input.close()
+data class HookOutput(val stdout: String, val stderr: String, val exitCode: Int)
 
-            val finished = proc.waitFor(60, java.util.concurrent.TimeUnit.SECONDS)
-            if (!finished) {
-                proc.destroyForcibly()
-                return Result.failure(RuntimeException("hook timed out"))
-            }
+// Run the hook command (list where first is executable). This is side-effecting.
+fun runHook(hook: List<String>, context: Map<String, Any?>): Result<HookOutput> = try {
+    if (hook.isEmpty()) Result.success(HookOutput("", "", 0))
+    else {
+        val pb = ProcessBuilder(hook)
+        // Provide context JSON-ish on stdin for the hook
+        val proc = pb.start()
+        val input = proc.outputStream
+        val json = buildContextJson(context)
+        input.write(json.toByteArray())
+        input.flush()
+        input.close()
+
+        // Capture stdout/stderr concurrently
+        val stdoutStream = ByteArrayOutputStream()
+        val stderrStream = ByteArrayOutputStream()
+        val outThread = Thread { proc.inputStream.copyTo(stdoutStream) }
+        val errThread = Thread { proc.errorStream.copyTo(stderrStream) }
+        outThread.start()
+        errThread.start()
+
+        val finished = proc.waitFor(60, java.util.concurrent.TimeUnit.SECONDS)
+        if (finished) {
+            // wait for reader threads to complete reading remaining output
+            outThread.join()
+            errThread.join()
+
             val exit = proc.exitValue()
-            if (exit == 0) Result.success(Unit) else Result.failure(RuntimeException("hook exit=$exit"))
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
+            val stdout = stdoutStream.toString(Charsets.UTF_8)
+            val stderr = stderrStream.toString(Charsets.UTF_8)
 
-    private fun buildContextJson(context: Map<String, Any?>): String {
-        val parts = context.entries.joinToString(",") { (k, v) ->
-            val value = when (v) {
-                null -> "null"
-                is Number -> v.toString()
-                is String -> "\"${v.replace("\"", "\\\"")}\""
-                else -> "\"${v.toString().replace("\"", "\\\"")}\""
-            }
-            "\"$k\":$value"
+            // Always return a HookOutput so callers can inspect stdout/stderr/exit code.
+            Result.success(HookOutput(stdout, stderr, exit))
+        } else {
+            proc.destroyForcibly()
+            // ensure readers finish
+            outThread.join(100)
+            errThread.join(100)
+            Result.failure(RuntimeException("hook timed out"))
         }
-        return "{\"timestamp\":\"${Instant.now()}\",$parts}"
     }
+} catch (e: Exception) {
+    Result.failure(e)
+}
+
+private fun buildContextJson(context: Map<String, Any?>): String {
+    val parts = context.entries.joinToString(",") { (k, v) ->
+        val value = when (v) {
+            null -> "null"
+            is Number -> v.toString()
+            is String -> "\"${v.replace("\"", "\\\"")}\""
+            else -> "\"${v.toString().replace("\"", "\\\"")}\""
+        }
+        "\"$k\":$value"
+    }
+    return "{\"timestamp\":\"${Instant.now()}\",$parts}"
 }

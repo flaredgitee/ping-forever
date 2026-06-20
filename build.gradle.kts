@@ -20,7 +20,7 @@ plugins {
 }
 
 group = "io.github.flaredgitee"
-version = "0.2.0"
+version = "0.2.1"
 
 repositories {
     mavenCentral()
@@ -48,7 +48,8 @@ tasks.jar {
     }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from({
-        configurations.runtimeClasspath.get()
+        configurations.runtimeClasspath
+            .get()
             .filter { it.name.endsWith(".jar") }
             .map { zipTree(it) }
     })
